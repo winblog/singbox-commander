@@ -65,4 +65,4 @@ singbox-native/
 
 本项目以 **Apache License 2.0** 发布。详见仓库根目录的 [`LICENSE`](./LICENSE) 文件。
 
-版权所有 © 2026 Weys。
+版权所有 © 2026 Weyes。
