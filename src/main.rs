@@ -64,14 +64,32 @@ extern "system" {
     fn OpenClipboard(hOwner: *mut std::ffi::c_void) -> i32;
     fn CloseClipboard() -> i32;
     fn GetClipboardData(uFormat: u32) -> *mut std::ffi::c_void;
+    fn FindWindowW(
+        lpClassName: *const u16,
+        lpWindowName: *const u16,
+    ) -> *mut std::ffi::c_void;
+    fn ShowWindow(hWnd: *mut std::ffi::c_void, nCmdShow: i32) -> i32;
+    fn SetForegroundWindow(hWnd: *mut std::ffi::c_void) -> i32;
 }
 #[link(name = "kernel32")]
 extern "system" {
     fn GlobalLock(hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
     fn GlobalUnlock(hMem: *mut std::ffi::c_void) -> i32;
+    fn CreateMutexW(
+        lpMutexAttributes: *mut std::ffi::c_void,
+        bInitialOwner: i32,
+        lpName: *const u16,
+    ) -> *mut std::ffi::c_void;
+    fn CloseHandle(hObject: *mut std::ffi::c_void) -> i32;
+    fn GetLastError() -> u32;
 }
 
 const CF_UNICODETEXT: u32 = 13;
+
+// 单实例互斥体名称（Global\ 前缀跨会话可见，防多开产生多个托盘图标）
+const SINGLE_INSTANCE_MUTEX: &str = "Global\\SingBoxGUI_Weys_SingleInstance";
+const ERROR_ALREADY_EXISTS: u32 = 183;
+const SW_RESTORE: i32 = 9;
 
 // Win32 MessageBox 常量
 const MB_OK: u32 = 0x0000;
@@ -793,6 +811,36 @@ mod app_ui {
 }
 
 fn main() {
+    // ===== 单实例互斥：防止多次双击产生多个托盘图标 =====
+    // 本进程持有互斥体直到退出（OS 自动释放）；若已存在实例则激活其窗口并退出。
+    {
+        let name: Vec<u16> = SINGLE_INSTANCE_MUTEX
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let h = unsafe { CreateMutexW(std::ptr::null_mut(), 1, name.as_ptr()) };
+        let already = h.is_null() || unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+        if already {
+            // 已运行：尝试激活已有窗口，让用户双击时原窗口弹出而非无反应
+            let title: Vec<u16> = "Sing-box 控制台"
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+            let hwnd = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
+            if !hwnd.is_null() {
+                unsafe {
+                    ShowWindow(hwnd, SW_RESTORE);
+                    SetForegroundWindow(hwnd);
+                }
+            }
+            if !h.is_null() {
+                unsafe { CloseHandle(h); }
+            }
+            std::process::exit(0);
+        }
+        // h 有效且非已存在：本进程持有互斥体，正常继续（不 CloseHandle，退出时 OS 释放）
+    }
+
     let data_dir = match std::env::current_exe() {
         Ok(exe) => exe.parent().map(|p| p.join("data")).unwrap_or_else(|| PathBuf::from("data")),
         Err(_) => PathBuf::from("data"),
