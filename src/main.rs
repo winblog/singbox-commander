@@ -82,6 +82,7 @@ extern "system" {
     ) -> *mut std::ffi::c_void;
     fn CloseHandle(hObject: *mut std::ffi::c_void) -> i32;
     fn GetLastError() -> u32;
+    fn FreeConsole() -> i32;
 }
 
 const CF_UNICODETEXT: u32 = 13;
@@ -233,6 +234,7 @@ impl App {
         } else if *handle == self.m_exit.handle {
             // 退出时清理本程序遗留的系统代理（写回注册表 + 广播），
             // 否则残留的"死代理"会让浏览器持续走代理死端口而无法上网
+            AppState::unregister_logon_cleanup(); // 撤销登录自检登记（代理将干净关闭，无需再清理）
             st.cleanup_proxy_on_exit();
             st.stop_proxy(); nwg::stop_thread_dispatch();
         }
@@ -511,7 +513,11 @@ impl App {
             let _ = st.set_system_proxy(false);
         } else {
             match st.set_system_proxy(true) {
-                Ok(_) => log_line(&format!("已自动开启系统代理（127.0.0.1:{}）", st.get_proxy_port())),
+                Ok(_) => {
+                    log_line(&format!("已自动开启系统代理（127.0.0.1:{}）", st.get_proxy_port()));
+                    // 登记登录自检：异常关机后下次登录自动清理死代理
+                    AppState::register_logon_cleanup();
+                }
                 Err(e) => log_line(&format!("系统代理开启失败：{}", e)),
             }
         }
@@ -583,6 +589,7 @@ impl App {
     /// 停止 sing-box（并同步关闭系统代理，避免死端口）。控制台按钮与托盘菜单共用。
     fn on_stop(&self) {
         let st = STATE.get().unwrap();
+        AppState::unregister_logon_cleanup(); // 代理即将关闭，撤销登录自检登记
         if st.system_proxy.load(Ordering::Relaxed) {
             let _ = st.set_system_proxy(false);
             st.stop_proxy();
@@ -811,6 +818,19 @@ mod app_ui {
 }
 
 fn main() {
+    // ===== --cleanup 登录自检模式（由 RunOnce 在异常关机后调用）=====
+    // 静默清理「死代理」（系统代理指向本程序端口但无服务监听）后直接退出，不显示界面。
+    if std::env::args().nth(1).as_deref() == Some("--cleanup") {
+        unsafe { FreeConsole(); } // 避免 RunOnce 拉起控制台窗口闪烁
+        let data_dir = match std::env::current_exe() {
+            Ok(exe) => exe.parent().map(|p| p.join("data")).unwrap_or_else(|| PathBuf::from("data")),
+            Err(_) => PathBuf::from("data"),
+        };
+        let st = AppState::new(data_dir);
+        st.cleanup_dangling_proxy();
+        return;
+    }
+
     // ===== 单实例互斥：防止多次双击产生多个托盘图标 =====
     // 本进程持有互斥体直到退出（OS 自动释放）；若已存在实例则激活其窗口并退出。
     {
@@ -848,6 +868,10 @@ fn main() {
 
     let state = Arc::new(AppState::new(data_dir));
     STATE.set(state.clone()).ok();
+
+    // 启动自愈：若上次异常关机残留「死代理」（本程序端口但无服务监听），
+    // 在此静默清理，避免浏览器无法上网。正常关闭已由 cleanup_proxy_on_exit 处理。
+    state.cleanup_dangling_proxy();
 
     // 后台轮询：每秒状态 + 每30秒持久化
     thread::spawn(move || {

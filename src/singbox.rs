@@ -580,6 +580,57 @@ $wininet::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0) | Out-Null
         }
     }
 
+    /// 登记「登录自检」：异常关机（未走正常退出流程）后，
+    /// 若系统代理指向本机却无服务监听（死代理），下次登录会自动清理，
+    /// 避免浏览器因残留代理设置而无法上网。
+    /// 写入 HKCU\...\RunOnce，系统登录时执行一次后自动删除该键。
+    pub fn register_logon_cleanup() {
+        if let Ok(exe) = std::env::current_exe() {
+            let exe_str = exe.display().to_string();
+            // 注册表值：带引号的 exe 路径 + --cleanup 参数；PowerShell 单引号内 " 为字面量
+            let ps = format!(
+                r#"Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'SingBoxGUI_Cleanup' -Value '\"{}\" --cleanup'"#,
+                exe_str.replace('\'', "''")
+            );
+            let _ = run_ps(&ps);
+        }
+    }
+
+    /// 正常停止/退出时撤销登录自检登记（代理已干净关闭，无需再清理）
+    pub fn unregister_logon_cleanup() {
+        let ps = r#"Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'SingBoxGUI_Cleanup' -ErrorAction SilentlyContinue"#;
+        let _ = run_ps(ps);
+    }
+
+    /// 清理「死代理」：系统代理指向本程序设置的回环地址，但没有任何服务在监听。
+    /// 仅在代理确实是我们自己设置的 `127.0.0.1:<本程序端口>`、且端口无人监听时才关闭，
+    /// 绝不动其他代理工具（如 Clash 用的不同回环端口）。
+    pub fn cleanup_dangling_proxy(&self) {
+        const SUB: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+        if !is_system_proxy_enabled() {
+            return;
+        }
+        let server = match reg_get_string(SUB, "ProxyServer") {
+            Some(s) => s,
+            None => return,
+        };
+        // 精确匹配「本程序此刻使用的端口」，避免误关其他回环代理（Clash 等）
+        let expected = format!("127.0.0.1:{}", self.proxy_port.load(Ordering::Relaxed));
+        if !server.eq_ignore_ascii_case(&expected) {
+            return;
+        }
+        let port = self.proxy_port.load(Ordering::Relaxed);
+        let listening = std::net::TcpStream::connect_timeout(
+            &([127, 0, 0, 1], port).into(),
+            Duration::from_millis(600),
+        )
+        .is_ok();
+        if !listening {
+            // 代理设置还在，但服务已死 → 直接关闭系统代理，恢复浏览器上网
+            let _ = self.set_system_proxy(false);
+        }
+    }
+
     // ---- 流量持久化 ----
 
     /// 标记流量数据变化（由状态轮询线程调用）
