@@ -1,0 +1,19 @@
+# Rust 构建产物
+/target
+
+# WorkBuddy 本地记忆（含项目笔记，勿上传）
+.workbuddy/
+
+# 运行数据目录（sing-box.exe / 配置 / 日志，用户本地放置）
+/data
+
+# 编译产物
+*.exe
+*.dll
+*.pdb
+
+# 编辑器 / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db

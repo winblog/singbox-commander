@@ -1,0 +1,9 @@
+# 静态链接 MSVC C 运行库（CRT），使产物 exe 不再依赖外部 vcruntime140.dll
+# 仅对 MSVC 目标生效；配合 Cargo.toml 中的 panic = "abort" 无副作用。
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+# GNU 目标（MinGW-w64）配置：静态链接 MinGW 运行库，产物自包含、
+# 不依赖 libgcc_s_seh-1.dll / libstdc++-6.dll 等外部 dll。
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-args=-static"]

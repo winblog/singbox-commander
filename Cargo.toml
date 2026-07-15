@@ -1,0 +1,27 @@
+[package]
+name = "singbox-commander"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+native-windows-gui = { version = "=1.0.5", features = ["embed-resource"] }
+native-windows-derive = "=1.0.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+url = "2"
+
+[[bin]]
+name = "SingBoxCommander"
+path = "src/main.rs"
+
+[profile.release]
+strip = true            # 去掉调试符号，立刻减几十 KB
+opt-level = "z"         # 体积优先优化
+lto = true              # 链接时优化，顺带略减体积
+codegen-units = 1       # 配合 lto，更好的跨模块优化
+panic = "abort"         # 去掉 unwind 表（GUI 程序不需要回溯，不影响功能）
+
+[build-dependencies]
+embed-resource = "2"    # 构建期把 embed.rc 编译进 exe（托盘图标内嵌，单文件分发）

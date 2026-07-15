@@ -1,0 +1,14 @@
+// 应用程序清单（RT_MANIFEST, ID=1）：激活 comctl32 v6，
+// 提供 GetWindowSubclass 等现代控件 API。无此清单 Windows 默认加载 comctl32 v5 导致启动失败。
+1 24 "app.manifest"
+
+// 程序文件图标（资源管理器中的 exe 图标）。
+// 数字 ID 1 是资源内最小 ID，Windows 取其作为文件图标；由 gen_app_icon.py 生成绿色地球。
+1 ICON "app.ico"
+
+// 托盘图标内嵌资源定义。
+// 字符串名 GREEN / RED 在运行时通过 nwg::EmbedResource::icon_str 加载，
+// 走 LoadImageW 原生加载器（Win11 下 alpha 正常，无黑方块）。
+// 图标文件由 gen_icons.py 在构建期生成于 src/，仅作为构建输入，无需随 exe 分发。
+GREEN ICON "src/green.ico"
+RED   ICON "src/red.ico"
